@@ -2,3 +2,4 @@ gtfs.zip
 __pycache__/
 *.webp
 *.gif
+.playwright-mcp/
