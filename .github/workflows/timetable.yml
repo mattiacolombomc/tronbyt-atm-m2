@@ -5,6 +5,8 @@ on:
     # 03:17 UTC = 04:17/05:17 in Milan, after the last M2 train and before the first
     - cron: "17 3 * * *"
   workflow_dispatch:
+  push:
+    paths: [trips.json, tools/build_timetable.py]
 
 permissions:
   contents: write
@@ -19,12 +21,12 @@ jobs:
           python-version: "3.12"
       - name: Test
         run: python -m unittest tools/test_build_timetable.py
-      - name: Build timetable.json
-        run: python tools/build_timetable.py --out timetable.json
+      - name: Build data/*.json
+        run: python tools/build_timetable.py
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add timetable.json
+          git add data
           git diff --cached --quiet || git commit -m "Update timetable $(date -u +%F)"
           git push

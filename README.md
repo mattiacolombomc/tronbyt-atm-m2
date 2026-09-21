@@ -1,33 +1,57 @@
 # tronbyt-atm-m2
 
-Tronbyt / Pixlet app: minutes to the next M2 (green line) trains from
-**Porta Genova** towards Piola (Gessate, Cologno Nord and Cascina Gobba
-trains), plus the arrival time at Piola / Politecnico.
+Tronbyt / Pixlet app for commutes on the ATM Milano network: minutes to the
+next departures, the connection if the trip has a change, and the arrival time.
 
-Times are **scheduled**, not real time: ATM does not publish live metro data.
+Times are **scheduled**, not real time: ATM does not publish live data.
 They come from the [Comune di Milano GTFS feed](https://dati.comune.milano.it/dataset/ds929-orari-del-trasporto-pubblico-locale-nel-comune-di-milano-in-formato-gtfs)
-(CC BY 4.0). A GitHub Action rebuilds `timetable.json` every night; the app
-downloads it from this repo.
+(CC BY 4.0). A GitHub Action rebuilds `data/<profile>.json` every night and
+whenever `trips.json` changes; the app downloads them from this repo.
 
 ## Files
 
-- `atm_m2.star` – the app. Upload it to the Tronbyt server.
-- `tools/build_timetable.py` – GTFS → `timetable.json`.
+- `atm_trip.star` – the app. Upload it once to the Tronbyt server and install
+  it once per profile.
+- `trips.json` – the profiles. Each one is a list of legs.
+- `tools/build_timetable.py` – GTFS + `trips.json` → `data/<profile>.json`.
 - `.github/workflows/timetable.yml` – nightly rebuild.
 
-## Settings
+## Changing a trip
 
-- *Minuti per arrivare al binario* – trains leaving sooner are hidden.
-- *Minuti da Piola al Polimi* – added to the arrival time.
+Edit `trips.json` on GitHub; the Action rebuilds the data within a minute and
+the display follows within three hours (the app caches the download). Nothing
+has to be re-uploaded to the Tronbyt.
 
-An amber station name means the feed has expired and the app is guessing
-from the weekday.
+A leg is:
+
+    {
+      "route": "T14",                 route_id in routes.txt (M2, T14, B327...)
+      "from": ["11182", "11181"],     stop_id(s) where you can board
+      "to": ["12984"],                stop_id(s) where you get off
+      "label": "14", "color": "#ff9000",
+      "from_label": "P.TA GENOVA", "to_label": "LORENTEGGIO"
+    }
+
+The direction is implied: only trips calling at a `to` stop after a `from`
+stop are kept. Stop ids are in `stops.txt` of the feed (surface stops are
+numbers, metro stations are names like `PIOLA`). `transfer_min` on the profile
+is the walking time between one leg and the next.
+
+## App settings
+
+- *Profilo* – profile name in `trips.json`.
+- *Minuti per arrivare alla fermata* – departures leaving sooner are hidden.
+- *Minuti a piedi dopo l'ultima fermata* – added to the arrival time.
+- *Nome della destinazione* – replaces the last stop's name (single-leg trips).
+
+An amber stop name means the feed has expired and the app is guessing from
+the weekday.
 
 ## Development
 
     python3 -m unittest tools/test_build_timetable.py
     python3 tools/build_timetable.py            # downloads the feed (~35 MB)
-    pixlet render atm_m2.star now=2026-09-22T08:00:00+02:00 -m 8
-
-To use another leg of the network change `ROUTE`, `ORIGIN` and `DEST` in
-`tools/build_timetable.py` (stop ids from `stops.txt`).
+    python3 -m http.server 8765 &
+    pixlet render atm_trip.star profile=laura \
+        timetable_url=http://127.0.0.1:8765/data/laura.json \
+        now=2026-09-22T08:00:00+02:00 -m 8

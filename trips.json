@@ -1,0 +1,38 @@
+{
+  "mattia": {
+    "legs": [
+      {
+        "route": "M2",
+        "label": "M2",
+        "color": "#5fd700",
+        "from": ["P.TA GENOVA F.S."],
+        "to": ["PIOLA"],
+        "from_label": "P.TA GENOVA",
+        "to_label": "PIOLA"
+      }
+    ]
+  },
+  "laura": {
+    "transfer_min": 4,
+    "legs": [
+      {
+        "route": "T14",
+        "label": "14",
+        "color": "#ff9000",
+        "from": ["11182", "11181"],
+        "to": ["12984"],
+        "from_label": "P.TA GENOVA",
+        "to_label": "LORENTEGGIO"
+      },
+      {
+        "route": "B327",
+        "label": "327",
+        "color": "#4aa8ff",
+        "from": ["13140"],
+        "to": ["14328"],
+        "from_label": "LORENTEGGIO",
+        "to_label": "TREZZANO"
+      }
+    ]
+  }
+}

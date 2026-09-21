@@ -1,0 +1,42 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - heading [level=1] [ref=e3]:
+      - link "Tronbyt Manager" [ref=e4] [cursor=pointer]:
+        - /url: /
+    - list [ref=e5]:
+      - listitem [ref=e6]:
+        - link "Log In" [ref=e7] [cursor=pointer]:
+          - /url: /auth/login
+      - listitem [ref=e8]:
+        - link "Create User" [ref=e9] [cursor=pointer]:
+          - /url: /auth/register
+  - generic [ref=e10]:
+    - generic [ref=e11]:
+      - heading [level=1] [ref=e12]:
+        - link "Tronbyt Manager" [ref=e13] [cursor=pointer]:
+          - /url: /
+      - button "×" [ref=e14] [cursor=pointer]
+    - list [ref=e15]:
+      - listitem [ref=e16]:
+        - link "Log In" [ref=e17] [cursor=pointer]:
+          - /url: /auth/login
+      - listitem [ref=e18]:
+        - link "Create User" [ref=e19] [cursor=pointer]:
+          - /url: /auth/register
+  - generic [ref=e20]:
+    - heading "Log In" [level=1] [ref=e22]
+    - generic [ref=e23]:
+      - generic [ref=e24]: Username
+      - textbox "Username" [ref=e25]
+      - generic [ref=e26]: Password
+      - textbox "Password" [ref=e27]
+      - generic [ref=e28]:
+        - checkbox "Remember Me" [ref=e29]
+        - text: Remember Me
+      - button "Log In" [ref=e30] [cursor=pointer]
+  - separator [ref=e32]
+  - generic [ref=e33]:
+    - text: Server main-b20f585 (
+    - link "b20f585" [ref=e34] [cursor=pointer]:
+      - /url: https://github.com/tronbyt/server/tree/b20f585f8896bd4c6a46b79b93bfd4c2eb190027
+    - text: )
