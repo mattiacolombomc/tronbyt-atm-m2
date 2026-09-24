@@ -85,43 +85,5 @@
         }
       }
     ]
-  },
-  "laura_ritorno": {
-    "transfer_min": 5,
-    "legs": [
-      {
-        "feed": "trenord",
-        "route": [
-          "S9",
-          "S19"
-        ],
-        "label": "S9/S19",
-        "color": "#a2338a",
-        "from": [
-          "S01065"
-        ],
-        "to": [
-          "S01032"
-        ],
-        "from_label": "TREZZANO",
-        "to_label": "ROMOLO",
-        "realtime": {
-          "viaggiatreno": "S01065"
-        }
-      },
-      {
-        "route": "M2",
-        "label": "M2",
-        "color": "#5fd700",
-        "from": [
-          "ROMOLO"
-        ],
-        "to": [
-          "P.TA GENOVA F.S."
-        ],
-        "from_label": "ROMOLO",
-        "to_label": "P.TA GENOVA"
-      }
-    ]
   }
 }

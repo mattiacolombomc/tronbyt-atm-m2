@@ -211,7 +211,7 @@ def get_schema():
             schema.Text(
                 id = "profile",
                 name = "Profilo",
-                desc = "Nome del percorso in trips.json (mattia, laura, laura_treno, laura_ritorno).",
+                desc = "Nome del percorso in trips.json (mattia, laura, laura_treno).",
                 icon = "user",
                 default = "mattia",
             ),
