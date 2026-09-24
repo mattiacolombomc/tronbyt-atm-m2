@@ -18,7 +18,7 @@ FETCH_TTL = 3 * 3600
 LAST_GOOD_TTL = 14 * 24 * 3600
 DAY = 86400
 VIAGGIATRENO_URL = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/partenze/"
-DELAYS_TTL = 60
+DELAYS_TTL = 30  # seconds; the server renders about once a minute
 
 WHITE = "#ffffff"
 GREY = "#8a8a8a"
@@ -147,15 +147,16 @@ def main(config):
     transfer = timetable.get("transfer_min", 0) * 60
     second = now.hour * 3600 + now.minute * 60 + now.second
 
-    trains = upcoming(legs[0], now, second + int_config(config, "walk") * 60)
+    realtime_url = config.get("realtime_url")
+    trains = upcoming(legs[0], now, second + int_config(config, "walk") * 60, delays(legs[0], now, realtime_url))
     if not trains:
         return page(top, lines([("NESSUNA CORSA", RED)]))
-    first, arrival, _, _ = trains[0]
+    first, arrival, _, first_delay = trains[0]
 
     # ride the first departure through the following legs
     connection = None
     for leg in legs[1:]:
-        onward = upcoming(leg, now, arrival + transfer, delays(leg, now, config.get("realtime_url")))
+        onward = upcoming(leg, now, arrival + transfer, delays(leg, now, realtime_url))
         if not onward:
             return page(top, lines([("NESSUNA", RED), ("COINCIDENZA " + leg.get("label", ""), RED)]))
         connection = (leg, onward[0][0], onward[0][2], onward[0][3])
@@ -179,6 +180,9 @@ def main(config):
         bottom = render.Text(label + " " + clock(arrival), font = "tb-8", color = WHITE)
 
     wait = (first - second) // 60
+
+    # the countdown already includes the delay; say so with the colour
+    wait_color = RED if first_delay >= 600 else AMBER if first_delay > 0 else color
     if wait >= 60:
         return page(top, lines([("PRIMA CORSA", GREY), ("PARTE " + clock(first), color)]) + [bottom])
 
@@ -191,8 +195,8 @@ def main(config):
         render.Row(
             cross_align = "end",
             children = [
-                render.Text("%d" % wait, font = "6x13", color = color),
-                render.Text("min", font = "tom-thumb", color = color),
+                render.Text("%d" % wait, font = "6x13", color = wait_color),
+                render.Text("min", font = "tom-thumb", color = wait_color),
                 render.Box(width = 4, height = 1),
                 render.Text(following, font = "tb-8", color = GREY),
             ],
@@ -207,7 +211,7 @@ def get_schema():
             schema.Text(
                 id = "profile",
                 name = "Profilo",
-                desc = "Nome del percorso in trips.json (mattia, laura, laura_treno).",
+                desc = "Nome del percorso in trips.json (mattia, laura, laura_treno, laura_ritorno).",
                 icon = "user",
                 default = "mattia",
             ),
