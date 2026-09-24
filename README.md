@@ -3,7 +3,11 @@
 Tronbyt / Pixlet app for commutes on the ATM Milano network: minutes to the
 next departures, the connection if the trip has a change, and the arrival time.
 
-Times are **scheduled**, not real time: ATM does not publish live data.
+Times are **scheduled** for ATM, which publishes no live data. Trenord legs
+can use live delays from ViaggiaTreno (RFI's departure boards, unofficial):
+give the leg `"realtime": {"viaggiatreno": "<station code>"}` and the app
+matches trains by number, picks the connection on the real times and colours
+them amber (delayed) or red (10+ minutes).
 They come from the [Comune di Milano GTFS feed](https://dati.comune.milano.it/dataset/ds929-orari-del-trasporto-pubblico-locale-nel-comune-di-milano-in-formato-gtfs)
 (ATM, CC BY 4.0) and the [Regione Lombardia railway GTFS](https://www.dati.lombardia.it/d/3z4k-mxz9)
 (Trenord, S lines). A GitHub Action rebuilds `data/<profile>.json` every night

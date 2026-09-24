@@ -20,9 +20,9 @@ TRIPS = """"route_id","service_id","trip_id","trip_headsign"
 """
 
 RAIL_TRIPS = """trip_id,route_id,trip_short_name,service_id
-s9a,S9,24601,svc_s9_a
-s19a,S19,24701,svc_s19_a
-s9back,S9,24602,svc_s9_b
+s9a,S9,S9 - 24601,svc_s9_a
+s19a,S19,S19 - 24701,svc_s19_a
+s9back,S9,S9 - 24602,svc_s9_b
 """
 
 RAIL_STOP_TIMES = """trip_id,arrival_time,departure_time,stop_id,stop_sequence
@@ -85,7 +85,13 @@ PROFILES = {
     },
     "rail": {
         "legs": [
-            {"feed": "trenord", "route": ["S9", "S19"], "from": ["S01032"], "to": ["S01065"]},
+            {
+                "feed": "trenord",
+                "route": ["S9", "S19"],
+                "from": ["S01032"],
+                "to": ["S01065"],
+                "realtime": {"viaggiatreno": "S01032"},
+            },
         ],
     },
 }
@@ -119,9 +125,10 @@ class BuildTest(unittest.TestCase):
         # west1 runs the other way, short never reaches Piola, other is M1
         self.assertEqual(
             self.metro["services"]["1"],
-            [[7 * 3600 + 30, 22 * 60 - 30], [24 * 3600 + 600, 21 * 60 + 49]],
+            [[7 * 3600 + 30, 22 * 60 - 30, 0], [24 * 3600 + 600, 21 * 60 + 49, 0]],
         )
-        self.assertEqual(self.metro["services"]["0"], [[36000, 21 * 60]])
+        self.assertEqual(self.metro["services"]["0"], [[36000, 21 * 60, 0]])
+        self.assertEqual(self.metro["lines"], ["M2"])
 
     def test_days_drop_the_past_and_unrelated_services(self):
         # service ids are renumbered in sorted order: sun -> 0, wk -> 1
@@ -136,19 +143,21 @@ class BuildTest(unittest.TestCase):
     def test_several_boarding_stops_and_services_on_one_day(self):
         # tram_back calls at 11181 too, but after 12984: it must not be listed
         # school -> 0, wk -> 1
-        self.assertEqual(self.tram["services"], {"1": [[28800, 1440]], "0": [[25500, 1260]]})
+        self.assertEqual(self.tram["services"], {"1": [[28800, 1440, 0]], "0": [[25500, 1260, 0]]})
         self.assertEqual(self.tram["days"]["20260921"], ["0", "1"])
 
     def test_second_feed_with_two_lines_on_one_leg(self):
         rail = self.timetables["rail"]["legs"][0]
         self.assertEqual(rail["lines"], ["S9", "S19"])
         # svc_s19_a -> 0, svc_s9_a -> 1; s9back runs the other way and is dropped
+        # the 4th element is the train number, taken from trip_short_name
         self.assertEqual(
             rail["services"],
-            {"0": [[7 * 3600 + 15 * 60, 16 * 60, 1]], "1": [[7 * 3600 + 25 * 60, 16 * 60, 0]]},
+            {"0": [[7 * 3600 + 15 * 60, 16 * 60, 1, 24701]], "1": [[7 * 3600 + 25 * 60, 16 * 60, 0, 24601]]},
         )
         self.assertEqual(rail["days"], {"20260921": ["0", "1"], "20260927": ["1"]})
-        self.assertNotIn("lines", self.metro)
+        self.assertEqual(rail["realtime"], {"viaggiatreno": "S01032"})
+        self.assertNotIn("realtime", self.metro)
 
     def test_profile_metadata(self):
         self.assertEqual(self.timetables["tram"]["transfer_min"], 4)

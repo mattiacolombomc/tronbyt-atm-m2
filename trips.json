@@ -79,7 +79,10 @@
           "S01065"
         ],
         "from_label": "ROMOLO",
-        "to_label": "TREZZANO"
+        "to_label": "TREZZANO",
+        "realtime": {
+          "viaggiatreno": "S01032"
+        }
       }
     ]
   }

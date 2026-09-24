@@ -31,7 +31,7 @@ WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 CALENDAR_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 # leg fields copied verbatim into the output for the app to display
-DISPLAY_FIELDS = ["label", "color", "from_label", "to_label"]
+DISPLAY_FIELDS = ["label", "color", "from_label", "to_label", "realtime"]
 
 
 def atm_url():
@@ -61,12 +61,22 @@ def text(archive, name):
     return io.TextIOWrapper(archive.open(name), encoding="utf-8-sig", newline="")
 
 
+def train_number(trip_short_name):
+    """The train number in a trip_short_name such as "S19 - 25917", else None."""
+    last = (trip_short_name or "").split()[-1:] or [""]
+    return int(last[0]) if last[0].isdigit() else None
+
+
 def read_trips(archive, routes):
-    """trip_id -> (route_id, service_id) for the trips of `routes`."""
+    """trip_id -> (route_id, service_id, train number) for the trips of `routes`."""
     trips = {}
     for row in csv.DictReader(text(archive, "trips.txt")):
         if row["route_id"] in routes:
-            trips[row["trip_id"]] = (row["route_id"], row["service_id"])
+            trips[row["trip_id"]] = (
+                row["route_id"],
+                row["service_id"],
+                train_number(row.get("trip_short_name")),
+            )
     return trips
 
 
@@ -132,7 +142,7 @@ def build_leg(leg, trips, calls, calendar, yesterday):
     routes = leg_routes(leg)
     services = collections.defaultdict(list)
     for trip_id, stops in calls.items():
-        route_id, service_id = trips[trip_id]
+        route_id, service_id, train = trips[trip_id]
         if route_id not in routes:
             continue
         boarded = [stops[s] for s in origins if s in stops]
@@ -143,10 +153,11 @@ def build_leg(leg, trips, calls, calendar, yesterday):
         alighted = [stops[s] for s in dests if s in stops and stops[s][0] > sequence]
         if not alighted:
             continue
-        departure_row = [departure, min(alighted)[1] - departure]
-        if len(routes) > 1:
-            # which of the leg's lines this is, for the display
-            departure_row.append(routes.index(route_id))
+        # [departure, ride, line index, train number]; the number is what
+        # real-time departure boards (ViaggiaTreno) identify a train by
+        departure_row = [departure, min(alighted)[1] - departure, routes.index(route_id)]
+        if train is not None:
+            departure_row.append(train)
         services[service_id].append(departure_row)
     if not services:
         raise RuntimeError("no %s trips from %r to %r in the feed" % (routes, origins, dests))
@@ -159,8 +170,7 @@ def build_leg(leg, trips, calls, calendar, yesterday):
             days[date].append(service_id)
 
     out = {field: leg[field] for field in DISPLAY_FIELDS if field in leg}
-    if len(routes) > 1:
-        out["lines"] = routes
+    out["lines"] = routes
     out["valid_until"] = max(days) if days else yesterday
     fallback = weekday_fallback(days)
     # past days are dead weight, but keep yesterday: its after-midnight trips run today

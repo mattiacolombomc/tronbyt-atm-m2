@@ -17,6 +17,8 @@ TIMEZONE = "Europe/Rome"
 FETCH_TTL = 3 * 3600
 LAST_GOOD_TTL = 14 * 24 * 3600
 DAY = 86400
+VIAGGIATRENO_URL = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/partenze/"
+DELAYS_TTL = 60
 
 WHITE = "#ffffff"
 GREY = "#8a8a8a"
@@ -36,27 +38,51 @@ def get_timetable(url):
         return None
     return json.decode(body)
 
+def url_encode(text):
+    return text.replace("%", "%25").replace(" ", "%20").replace(":", "%3A").replace("+", "%2B")
+
+def delays(leg, now, override_url):
+    """train number -> delay in seconds, from the station's live departure board."""
+    source = leg.get("realtime")
+    if not source or "viaggiatreno" not in source:
+        return {}
+
+    # ViaggiaTreno wants the current time in the path, in JavaScript's Date format
+    stamp = now.format("Mon Jan 02 2006 15:04:05 GMT-0700")
+    url = override_url or VIAGGIATRENO_URL + source["viaggiatreno"] + "/" + url_encode(stamp)
+    resp = http.get(url, ttl_seconds = DELAYS_TTL)
+    if resp.status_code != 200:
+        return {}
+    found = {}
+    for train in resp.json():
+        # numbers come back as floats
+        number, delay = train.get("numeroTreno"), train.get("ritardo")
+        if type(number) in ("int", "float") and type(delay) in ("int", "float"):
+            # an early train still leaves at the scheduled time
+            found[int(number)] = max(int(delay), 0) * 60
+    return found
+
 def services_on(leg, day):
     ids = leg["days"].get(day.format("20060102"))
     if ids == None:
         ids = leg["fallback"].get(day.format("Mon"), [])
     return ids
 
-def upcoming(leg, now, earliest):
-    """(departure, arrival, line) triples, in seconds from today's midnight, leaving not before `earliest`.
+def upcoming(leg, now, earliest, late = {}):
+    """(departure, arrival, line, delay) tuples leaving not before `earliest`.
 
-    `line` is the label of the line running that trip (legs with several lines
-    carry the line index as a third element of each departure)."""
+    Times are seconds from today's midnight and already include the delay,
+    which `late` gives per train number (0 for anything not on the board)."""
     found = []
 
     # yesterday's service day runs past midnight (GTFS times like 24:37:27)
     for day, offset in [(now - time.parse_duration("24h"), -DAY), (now, 0)]:
         for service in services_on(leg, day):
             for row in leg["services"].get(service, []):
-                at = row[0] + offset
+                delay = late.get(row[3], 0) if len(row) > 3 else 0
+                at = row[0] + offset + delay
                 if at >= earliest:
-                    line = leg["lines"][row[2]] if len(row) > 2 and "lines" in leg else leg.get("label", "")
-                    found.append((at, at + row[1], line))
+                    found.append((at, at + row[1], leg["lines"][row[2]], delay))
     return sorted(found)
 
 def two_digits(n):
@@ -124,25 +150,28 @@ def main(config):
     trains = upcoming(legs[0], now, second + int_config(config, "walk") * 60)
     if not trains:
         return page(top, lines([("NESSUNA CORSA", RED)]))
-    first, arrival, _ = trains[0]
+    first, arrival, _, _ = trains[0]
 
     # ride the first departure through the following legs
     connection = None
     for leg in legs[1:]:
-        onward = upcoming(leg, now, arrival + transfer)
+        onward = upcoming(leg, now, arrival + transfer, delays(leg, now, config.get("realtime_url")))
         if not onward:
             return page(top, lines([("NESSUNA", RED), ("COINCIDENZA " + leg.get("label", ""), RED)]))
-        connection = (leg, onward[0][0], onward[0][2])
+        connection = (leg, onward[0][0], onward[0][2], onward[0][3])
         arrival = onward[0][1]
     arrival += int_config(config, "after") * 60
 
     if connection:
-        leg, leaves, line = connection
+        leg, leaves, line, delay = connection
+
+        # times already include the delay; the colour says it is not the timetable
+        delay_color = RED if delay >= 600 else AMBER if delay > 0 else None
         bottom = render.Row(
             children = [
                 render.Text(line, font = "tom-thumb", color = leg.get("color", WHITE)),
-                render.Text(" " + clock(leaves), font = "tom-thumb", color = WHITE),
-                render.Text(">" + clock(arrival), font = "tom-thumb", color = GREY),
+                render.Text(" " + clock(leaves), font = "tom-thumb", color = delay_color or WHITE),
+                render.Text(">" + clock(arrival), font = "tom-thumb", color = delay_color or GREY),
             ],
         )
     else:
@@ -155,7 +184,7 @@ def main(config):
 
     following = " ".join([
         "%d'" % ((at - second) // 60)
-        for at, _, _ in trains[1:3]
+        for at, _, _, _ in trains[1:3]
         if at - second < 3600
     ])
     return page(top, [
