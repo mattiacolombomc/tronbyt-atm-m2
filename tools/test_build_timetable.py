@@ -19,6 +19,28 @@ TRIPS = """"route_id","service_id","trip_id","trip_headsign"
 "T14","wk","tram_back","p.ta genova m2"
 """
 
+RAIL_TRIPS = """trip_id,route_id,trip_short_name,service_id
+s9a,S9,24601,svc_s9_a
+s19a,S19,24701,svc_s19_a
+s9back,S9,24602,svc_s9_b
+"""
+
+RAIL_STOP_TIMES = """trip_id,arrival_time,departure_time,stop_id,stop_sequence
+s9a,07:25:00,07:25:00,S01032,4
+s9a,07:41:00,07:41:00,S01065,7
+s19a,07:15:00,07:15:00,S01032,2
+s19a,07:31:00,07:31:00,S01065,5
+s9back,08:00:00,08:00:00,S01065,1
+s9back,08:16:00,08:16:00,S01032,4
+"""
+
+RAIL_CALENDAR_DATES = """service_id,date,exception_type
+svc_s9_a,20260921,1
+svc_s9_a,20260927,1
+svc_s19_a,20260921,1
+svc_s9_b,20260921,1
+"""
+
 STOP_TIMES = """"trip_id","arrival_time","departure_time","stop_id","stop_sequence"
 "east1","07:00:00","07:00:30","P.TA GENOVA F.S.","4"
 "east1","07:22:00","07:22:30","PIOLA","16"
@@ -61,6 +83,11 @@ PROFILES = {
             {"route": "M2", "from": ["P.TA GENOVA F.S."], "to": ["PIOLA"]},
         ],
     },
+    "rail": {
+        "legs": [
+            {"feed": "trenord", "route": ["S9", "S19"], "from": ["S01032"], "to": ["S01065"]},
+        ],
+    },
 }
 
 
@@ -73,7 +100,14 @@ class BuildTest(unittest.TestCase):
             archive.writestr("trips.txt", TRIPS)
             archive.writestr("stop_times.txt", STOP_TIMES)
             archive.writestr("calendar_dates.txt", CALENDAR_DATES)
-        cls.timetables = build_timetable.build(path, PROFILES, today="20260921")
+        rail = os.path.join(cls.tmp.name, "trenord.zip")
+        with zipfile.ZipFile(rail, "w") as archive:
+            archive.writestr("trips.txt", RAIL_TRIPS)
+            archive.writestr("stop_times.txt", RAIL_STOP_TIMES)
+            archive.writestr("calendar_dates.txt", RAIL_CALENDAR_DATES)
+        cls.timetables = build_timetable.build(
+            {"atm": path, "trenord": rail}, PROFILES, today="20260921"
+        )
         cls.metro = cls.timetables["metro"]["legs"][0]
         cls.tram = cls.timetables["tram"]["legs"][0]
 
@@ -84,24 +118,37 @@ class BuildTest(unittest.TestCase):
     def test_keeps_only_trips_reaching_dest_after_origin(self):
         # west1 runs the other way, short never reaches Piola, other is M1
         self.assertEqual(
-            self.metro["services"]["wk"],
+            self.metro["services"]["1"],
             [[7 * 3600 + 30, 22 * 60 - 30], [24 * 3600 + 600, 21 * 60 + 49]],
         )
-        self.assertEqual(self.metro["services"]["sun"], [[36000, 21 * 60]])
+        self.assertEqual(self.metro["services"]["0"], [[36000, 21 * 60]])
 
     def test_days_drop_the_past_and_unrelated_services(self):
+        # service ids are renumbered in sorted order: sun -> 0, wk -> 1
         self.assertEqual(
             self.metro["days"],
-            {"20260921": ["wk"], "20260922": ["wk"], "20260927": ["sun"]},
+            {"20260921": ["1"], "20260922": ["1"], "20260927": ["0"]},
         )
         self.assertEqual(self.metro["valid_until"], "20260927")
-        self.assertEqual(self.metro["fallback"]["Mon"], ["wk"])
-        self.assertEqual(self.metro["fallback"]["Sun"], ["sun"])
+        self.assertEqual(self.metro["fallback"]["Mon"], ["1"])
+        self.assertEqual(self.metro["fallback"]["Sun"], ["0"])
 
     def test_several_boarding_stops_and_services_on_one_day(self):
         # tram_back calls at 11181 too, but after 12984: it must not be listed
-        self.assertEqual(self.tram["services"], {"wk": [[28800, 1440]], "school": [[25500, 1260]]})
-        self.assertEqual(self.tram["days"]["20260921"], ["school", "wk"])
+        # school -> 0, wk -> 1
+        self.assertEqual(self.tram["services"], {"1": [[28800, 1440]], "0": [[25500, 1260]]})
+        self.assertEqual(self.tram["days"]["20260921"], ["0", "1"])
+
+    def test_second_feed_with_two_lines_on_one_leg(self):
+        rail = self.timetables["rail"]["legs"][0]
+        self.assertEqual(rail["lines"], ["S9", "S19"])
+        # svc_s19_a -> 0, svc_s9_a -> 1; s9back runs the other way and is dropped
+        self.assertEqual(
+            rail["services"],
+            {"0": [[7 * 3600 + 15 * 60, 16 * 60, 1]], "1": [[7 * 3600 + 25 * 60, 16 * 60, 0]]},
+        )
+        self.assertEqual(rail["days"], {"20260921": ["0", "1"], "20260927": ["1"]})
+        self.assertNotIn("lines", self.metro)
 
     def test_profile_metadata(self):
         self.assertEqual(self.timetables["tram"]["transfer_min"], 4)

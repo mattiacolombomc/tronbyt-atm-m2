@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build compact per-profile timetables out of the Milan GTFS feed.
+"""Build compact per-profile timetables out of GTFS feeds.
 
-The feed (Comune di Milano / AMAT open data) is ~35 MB zipped and its
+The ATM feed (Comune di Milano / AMAT open data) is ~35 MB zipped and its
 stop_times.txt is ~440 MB, far too big for a Tronbyt app to read at render
-time. trips.json describes each profile as a list of legs (route, boarding
-stops, alighting stops); for every leg this script keeps only the trips that
-call at a boarding stop and, later in the same trip, at an alighting stop:
-that is what selects the direction.
+time. trips.json describes each profile as a list of legs (feed, route(s),
+boarding stops, alighting stops); for every leg this script keeps only the
+trips that call at a boarding stop and, later in the same trip, at an
+alighting stop: that is what selects the direction.
 """
 
 import argparse
@@ -24,6 +24,9 @@ CKAN_PACKAGE = (
     "https://dati.comune.milano.it/api/3/action/package_show"
     "?id=ds929-orari-del-trasporto-pubblico-locale-nel-comune-di-milano-in-formato-gtfs"
 )
+# Trenord regional railway timetable, published by Regione Lombardia
+TRENORD_URL = "https://www.dati.lombardia.it/download/3z4k-mxz9/application%2Fzip"
+DEFAULT_FEED = "atm"
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 CALENDAR_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
@@ -31,13 +34,16 @@ CALENDAR_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday", "sat
 DISPLAY_FIELDS = ["label", "color", "from_label", "to_label"]
 
 
-def gtfs_url():
+def atm_url():
     with urllib.request.urlopen(CKAN_PACKAGE, timeout=60) as resp:
         package = json.load(resp)
     for resource in package["result"]["resources"]:
         if resource["url"].lower().endswith(".zip"):
             return resource["url"]
     raise RuntimeError("no zip resource in the CKAN package")
+
+
+FEED_URLS = {"atm": atm_url, "trenord": lambda: TRENORD_URL}
 
 
 def download(url, path):
@@ -116,12 +122,18 @@ def weekday_fallback(days):
     return {day: list(counter.most_common(1)[0][0]) for day, counter in votes.items()}
 
 
+def leg_routes(leg):
+    routes = leg["route"]
+    return [routes] if isinstance(routes, str) else list(routes)
+
+
 def build_leg(leg, trips, calls, calendar, yesterday):
     origins, dests = leg["from"], leg["to"]
+    routes = leg_routes(leg)
     services = collections.defaultdict(list)
     for trip_id, stops in calls.items():
         route_id, service_id = trips[trip_id]
-        if route_id != leg["route"]:
+        if route_id not in routes:
             continue
         boarded = [stops[s] for s in origins if s in stops]
         if not boarded:
@@ -131,11 +143,13 @@ def build_leg(leg, trips, calls, calendar, yesterday):
         alighted = [stops[s] for s in dests if s in stops and stops[s][0] > sequence]
         if not alighted:
             continue
-        services[service_id].append([departure, min(alighted)[1] - departure])
+        departure_row = [departure, min(alighted)[1] - departure]
+        if len(routes) > 1:
+            # which of the leg's lines this is, for the display
+            departure_row.append(routes.index(route_id))
+        services[service_id].append(departure_row)
     if not services:
-        raise RuntimeError(
-            "no %s trips from %r to %r in the feed" % (leg["route"], origins, dests)
-        )
+        raise RuntimeError("no %s trips from %r to %r in the feed" % (routes, origins, dests))
     for departures in services.values():
         departures.sort()
 
@@ -145,32 +159,56 @@ def build_leg(leg, trips, calls, calendar, yesterday):
             days[date].append(service_id)
 
     out = {field: leg[field] for field in DISPLAY_FIELDS if field in leg}
+    if len(routes) > 1:
+        out["lines"] = routes
     out["valid_until"] = max(days) if days else yesterday
-    out["fallback"] = weekday_fallback(days)
+    fallback = weekday_fallback(days)
     # past days are dead weight, but keep yesterday: its after-midnight trips run today
-    out["days"] = {date: ids for date, ids in sorted(days.items()) if date >= yesterday}
-    live = {s for ids in list(out["days"].values()) + list(out["fallback"].values()) for s in ids}
-    out["services"] = {s: departures for s, departures in services.items() if s in live}
+    days = {date: ids for date, ids in sorted(days.items()) if date >= yesterday}
+    # GTFS service ids can be long (Trenord uses one per trip): number the live ones
+    live = sorted({s for ids in list(days.values()) + list(fallback.values()) for s in ids})
+    short = {service_id: str(i) for i, service_id in enumerate(live)}
+    out["fallback"] = {day: [short[s] for s in ids] for day, ids in fallback.items()}
+    out["days"] = {date: [short[s] for s in ids] for date, ids in days.items()}
+    out["services"] = {short[s]: services[s] for s in live}
     return out
 
 
-def build(zip_path, profiles, today=None):
-    """profile name -> timetable dict."""
+def read_feed(zip_path, legs):
+    """(trips, calls, calendar) of one feed, restricted to what `legs` need."""
+    stop_ids = {stop for leg in legs for stop in leg["from"] + leg["to"]}
+    routes = {route for leg in legs for route in leg_routes(leg)}
+    with zipfile.ZipFile(zip_path) as archive:
+        trips = read_trips(archive, routes)
+        calls = read_calls(archive, trips, stop_ids)
+        calendar = read_calendar(archive)
+    return trips, calls, calendar
+
+
+def feeds_needed(profiles):
+    return sorted({leg.get("feed", DEFAULT_FEED) for p in profiles.values() for leg in p["legs"]})
+
+
+def build(zip_paths, profiles, today=None):
+    """profile name -> timetable dict. zip_paths maps feed name -> GTFS zip."""
     today = today or datetime.date.today().strftime("%Y%m%d")
     yesterday = (
         datetime.datetime.strptime(today, "%Y%m%d") - datetime.timedelta(days=1)
     ).strftime("%Y%m%d")
 
     legs = [leg for profile in profiles.values() for leg in profile["legs"]]
-    stop_ids = {stop for leg in legs for stop in leg["from"] + leg["to"]}
-    with zipfile.ZipFile(zip_path) as archive:
-        trips = read_trips(archive, {leg["route"] for leg in legs})
-        calls = read_calls(archive, trips, stop_ids)
-        calendar = read_calendar(archive)
+    feeds = {}
+    for feed in feeds_needed(profiles):
+        feeds[feed] = read_feed(
+            zip_paths[feed], [leg for leg in legs if leg.get("feed", DEFAULT_FEED) == feed]
+        )
 
     timetables = {}
     for name, profile in profiles.items():
-        built = [build_leg(leg, trips, calls, calendar, yesterday) for leg in profile["legs"]]
+        built = [
+            build_leg(leg, *feeds[leg.get("feed", DEFAULT_FEED)], yesterday)
+            for leg in profile["legs"]
+        ]
         timetables[name] = {
             "generated": today,
             "valid_until": min(leg["valid_until"] for leg in built),
@@ -182,7 +220,13 @@ def build(zip_path, profiles, today=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--zip", help="use this GTFS zip instead of downloading the feed")
+    parser.add_argument(
+        "--zip",
+        action="append",
+        default=[],
+        metavar="FEED=PATH",
+        help="use this GTFS zip for FEED (atm, trenord) instead of downloading it",
+    )
     parser.add_argument("--trips", default="trips.json")
     parser.add_argument("--out", default="data", help="output directory")
     args = parser.parse_args()
@@ -190,15 +234,16 @@ def main():
     with open(args.trips) as f:
         profiles = json.load(f)
 
-    zip_path = args.zip
-    if not zip_path:
-        zip_path = "gtfs.zip"
-        url = gtfs_url()
-        print("downloading", url, file=sys.stderr)
-        download(url, zip_path)
+    zip_paths = dict(arg.split("=", 1) for arg in args.zip)
+    for feed in feeds_needed(profiles):
+        if feed not in zip_paths:
+            zip_paths[feed] = "gtfs-%s.zip" % feed
+            url = FEED_URLS[feed]()
+            print("downloading", url, file=sys.stderr)
+            download(url, zip_paths[feed])
 
     os.makedirs(args.out, exist_ok=True)
-    for name, timetable in build(zip_path, profiles).items():
+    for name, timetable in build(zip_paths, profiles).items():
         path = os.path.join(args.out, name + ".json")
         with open(path, "w") as out:
             json.dump(timetable, out, separators=(",", ":"))

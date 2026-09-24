@@ -1,7 +1,7 @@
 """
 Applet: ATM Trip
 Summary: Next ATM Milano departures
-Description: Minutes to the next departures of a commute on the ATM Milano network (metro, tram, bus), with connection and arrival time. Scheduled times from the Comune di Milano GTFS feed, rebuilt every night.
+Description: Minutes to the next departures of a commute in Milan (ATM metro, tram, bus and Trenord suburban trains), with connection and arrival time. Scheduled times from the Comune di Milano and Regione Lombardia GTFS feeds, rebuilt every night.
 Author: mattiacolombomc
 """
 
@@ -43,16 +43,20 @@ def services_on(leg, day):
     return ids
 
 def upcoming(leg, now, earliest):
-    """(departure, arrival) pairs, in seconds from today's midnight, leaving not before `earliest`."""
+    """(departure, arrival, line) triples, in seconds from today's midnight, leaving not before `earliest`.
+
+    `line` is the label of the line running that trip (legs with several lines
+    carry the line index as a third element of each departure)."""
     found = []
 
     # yesterday's service day runs past midnight (GTFS times like 24:37:27)
     for day, offset in [(now - time.parse_duration("24h"), -DAY), (now, 0)]:
         for service in services_on(leg, day):
-            for departure, ride in leg["services"].get(service, []):
-                at = departure + offset
+            for row in leg["services"].get(service, []):
+                at = row[0] + offset
                 if at >= earliest:
-                    found.append((at, at + ride))
+                    line = leg["lines"][row[2]] if len(row) > 2 and "lines" in leg else leg.get("label", "")
+                    found.append((at, at + row[1], line))
     return sorted(found)
 
 def two_digits(n):
@@ -120,7 +124,7 @@ def main(config):
     trains = upcoming(legs[0], now, second + int_config(config, "walk") * 60)
     if not trains:
         return page(top, lines([("NESSUNA CORSA", RED)]))
-    first, arrival = trains[0]
+    first, arrival, _ = trains[0]
 
     # ride the first departure through the following legs
     connection = None
@@ -128,15 +132,15 @@ def main(config):
         onward = upcoming(leg, now, arrival + transfer)
         if not onward:
             return page(top, lines([("NESSUNA", RED), ("COINCIDENZA " + leg.get("label", ""), RED)]))
-        connection = (leg, onward[0][0])
+        connection = (leg, onward[0][0], onward[0][2])
         arrival = onward[0][1]
     arrival += int_config(config, "after") * 60
 
     if connection:
-        leg, leaves = connection
+        leg, leaves, line = connection
         bottom = render.Row(
             children = [
-                render.Text(leg.get("label", ""), font = "tom-thumb", color = leg.get("color", WHITE)),
+                render.Text(line, font = "tom-thumb", color = leg.get("color", WHITE)),
                 render.Text(" " + clock(leaves), font = "tom-thumb", color = WHITE),
                 render.Text(">" + clock(arrival), font = "tom-thumb", color = GREY),
             ],
@@ -151,7 +155,7 @@ def main(config):
 
     following = " ".join([
         "%d'" % ((at - second) // 60)
-        for at, _ in trains[1:3]
+        for at, _, _ in trains[1:3]
         if at - second < 3600
     ])
     return page(top, [
@@ -174,7 +178,7 @@ def get_schema():
             schema.Text(
                 id = "profile",
                 name = "Profilo",
-                desc = "Nome del percorso in trips.json (mattia, laura).",
+                desc = "Nome del percorso in trips.json (mattia, laura, laura_treno).",
                 icon = "user",
                 default = "mattia",
             ),

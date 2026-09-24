@@ -1,4 +1,4 @@
-gtfs.zip
+gtfs*.zip
 __pycache__/
 *.webp
 *.gif

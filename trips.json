@@ -5,8 +5,12 @@
         "route": "M2",
         "label": "M2",
         "color": "#5fd700",
-        "from": ["P.TA GENOVA F.S."],
-        "to": ["PIOLA"],
+        "from": [
+          "P.TA GENOVA F.S."
+        ],
+        "to": [
+          "PIOLA"
+        ],
         "from_label": "P.TA GENOVA",
         "to_label": "PIOLA"
       }
@@ -19,8 +23,13 @@
         "route": "T14",
         "label": "14",
         "color": "#ff9000",
-        "from": ["11182", "11181"],
-        "to": ["12984"],
+        "from": [
+          "11182",
+          "11181"
+        ],
+        "to": [
+          "12984"
+        ],
         "from_label": "P.TA GENOVA",
         "to_label": "LORENTEGGIO"
       },
@@ -28,10 +37,49 @@
         "route": "B327",
         "label": "327",
         "color": "#4aa8ff",
-        "from": ["13140"],
-        "to": ["14326"],
+        "from": [
+          "13140"
+        ],
+        "to": [
+          "14326"
+        ],
         "from_label": "LORENTEGGIO",
         "to_label": "VIA CELLINI"
+      }
+    ]
+  },
+  "laura_treno": {
+    "transfer_min": 5,
+    "legs": [
+      {
+        "route": "M2",
+        "label": "M2",
+        "color": "#5fd700",
+        "from": [
+          "P.TA GENOVA F.S."
+        ],
+        "to": [
+          "ROMOLO"
+        ],
+        "from_label": "P.TA GENOVA",
+        "to_label": "ROMOLO"
+      },
+      {
+        "feed": "trenord",
+        "route": [
+          "S9",
+          "S19"
+        ],
+        "label": "S9/S19",
+        "color": "#a2338a",
+        "from": [
+          "S01032"
+        ],
+        "to": [
+          "S01065"
+        ],
+        "from_label": "ROMOLO",
+        "to_label": "TREZZANO"
       }
     ]
   }
