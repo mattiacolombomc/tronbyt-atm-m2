@@ -188,7 +188,10 @@ def main(config):
         now = time.parse_time(config.get("now")).in_location(TIMEZONE)
 
     profile = (config.get("profile") or "mattia").strip().lower()
-    timetable = get_timetable(config.get("timetable_url") or DATA_URL + profile + ".json")
+
+    # the hour in the URL bounds how long a stale profile survives in the server's cache
+    url = config.get("timetable_url") or DATA_URL + profile + ".json?h=" + now.format("2006010215")
+    timetable = get_timetable(url)
     if timetable == None:
         title = render.Text(profile.upper(), font = "tom-thumb", color = WHITE)
         return page(title, lines([("ORARIO NON", RED), ("DISPONIBILE", RED)]))
