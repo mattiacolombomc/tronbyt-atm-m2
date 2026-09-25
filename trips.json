@@ -31,7 +31,21 @@
           "12984"
         ],
         "from_label": "P.TA GENOVA",
-        "to_label": "LORENTEGGIO"
+        "to_label": "LORENTEGGIO",
+        "realtime": {
+          "giromilano": {
+            "line": "14",
+            "stops": [
+              {
+                "id": "11182"
+              },
+              {
+                "id": "11193",
+                "offset": -60
+              }
+            ]
+          }
+        }
       },
       {
         "route": "B327",

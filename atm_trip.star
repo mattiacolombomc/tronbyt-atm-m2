@@ -18,7 +18,23 @@ FETCH_TTL = 3 * 3600
 LAST_GOOD_TTL = 14 * 24 * 3600
 DAY = 86400
 VIAGGIATRENO_URL = "http://www.viaggiatreno.it/infomobilita/resteasy/viaggiatreno/partenze/"
+GIROMILANO_URL = "https://giromilano.atm.it/proxy.tpportal/api/tpPortal/geodata/pois/stops/"
 DELAYS_TTL = 30  # seconds; the server renders about once a minute
+
+# GiroMilano sits behind a bot filter that wants a browser-looking request
+GIROMILANO_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "it-IT,it;q=0.9",
+    "Referer": "https://giromilano.atm.it/",
+    "Origin": "https://giromilano.atm.it",
+    "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+}
 
 WHITE = "#ffffff"
 GREY = "#8a8a8a"
@@ -62,6 +78,38 @@ def delays(leg, now, override_url):
             found[int(number)] = max(int(delay), 0) * 60
     return found
 
+def parse_wait(message):
+    """Seconds of waiting from a GiroMilano WaitMessage ("5 min", "in arrivo"), else None."""
+    if message == None:
+        return None
+    message = message.strip().lower()
+    if message == "in arrivo":
+        return 0
+    if message.endswith(" min") and message[:-4].isdigit():
+        return int(message[:-4]) * 60
+    return None  # "ricalcolo", "no serv.", ""
+
+def live_wait(leg, override_url):
+    """Seconds until the next vehicle of the leg's line, from GiroMilano's stop boards, else None.
+
+    Stops are tried in order; a stop further down the line can stand in for
+    the boarding stop with an `offset` (negative: the vehicle gets there later)."""
+    source = leg.get("realtime")
+    if not source or "giromilano" not in source:
+        return None
+    line = source["giromilano"]["line"]
+    for stop in source["giromilano"]["stops"]:
+        url = override_url or GIROMILANO_URL + stop["id"]
+        resp = http.get(url, headers = GIROMILANO_HEADERS, ttl_seconds = DELAYS_TTL)
+        if resp.status_code != 200:
+            continue
+        for entry in resp.json().get("Lines", []):
+            if entry.get("Line", {}).get("LineCode") == line:
+                wait = parse_wait(entry.get("WaitMessage"))
+                if wait != None:
+                    return max(wait + stop.get("offset", 0), 0)
+    return None
+
 def services_on(leg, day):
     ids = leg["days"].get(day.format("20060102"))
     if ids == None:
@@ -82,7 +130,10 @@ def upcoming(leg, now, earliest, late = {}):
                 delay = late.get(row[3], 0) if len(row) > 3 else 0
                 at = row[0] + offset + delay
                 if at >= earliest:
-                    found.append((at, at + row[1], leg["lines"][row[2]], delay))
+                    # a leg with several lines names the one running this trip;
+                    # a single-line leg shows its label ("327", not "B327")
+                    line = leg["lines"][row[2]] if len(leg["lines"]) > 1 else leg.get("label", leg["lines"][0])
+                    found.append((at, at + row[1], line, delay))
     return sorted(found)
 
 def two_digits(n):
@@ -108,15 +159,16 @@ def badge(leg):
         ),
     )
 
-def header(leg, stale):
-    return render.Row(
-        cross_align = "center",
-        children = [
-            badge(leg),
-            render.Box(width = 2, height = 1),
-            render.Text(leg.get("from_label", ""), font = "tom-thumb", color = AMBER if stale else WHITE),
-        ],
-    )
+def header(leg, stale, live = False):
+    children = [
+        badge(leg),
+        render.Box(width = 2, height = 1),
+        render.Text(leg.get("from_label", ""), font = "tom-thumb", color = AMBER if stale else WHITE),
+    ]
+    if live:
+        # a green dot: the countdown comes from the live stop board
+        children += [render.Box(width = 2, height = 1), render.Box(width = 2, height = 2, color = "#5fd700")]
+    return render.Row(cross_align = "center", children = children)
 
 def page(top, rows):
     return render.Root(
@@ -143,14 +195,24 @@ def main(config):
 
     legs = timetable["legs"]
     color = legs[0].get("color", WHITE)
-    top = header(legs[0], now.format("20060102") > timetable["valid_until"])
+    stale = now.format("20060102") > timetable["valid_until"]
+    top = header(legs[0], stale)
     transfer = timetable.get("transfer_min", 0) * 60
     second = now.hour * 3600 + now.minute * 60 + now.second
 
     realtime_url = config.get("realtime_url")
-    trains = upcoming(legs[0], now, second + int_config(config, "walk") * 60, delays(legs[0], now, realtime_url))
+    earliest = second + int_config(config, "walk") * 60
+    trains = upcoming(legs[0], now, earliest, delays(legs[0], now, realtime_url))
     if not trains:
         return page(top, lines([("NESSUNA CORSA", RED)]))
+
+    # a live waiting time replaces the first scheduled departure
+    wait_live = live_wait(legs[0], config.get("giromilano_url"))
+    if wait_live != None and second + wait_live >= earliest:
+        at = second + wait_live
+        ride = trains[0][1] - trains[0][0]
+        trains = [(at, at + ride, trains[0][2], 0)] + [t for t in trains if t[0] > at + 60]
+        top = header(legs[0], stale, live = True)
     first, arrival, _, first_delay = trains[0]
 
     # ride the first departure through the following legs
