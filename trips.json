@@ -24,24 +24,19 @@
         "label": "14",
         "color": "#ff9000",
         "from": [
-          "11182",
-          "11181"
+          "11194"
         ],
         "to": [
           "12984"
         ],
-        "from_label": "P.TA GENOVA",
+        "from_label": "CANTORE",
         "to_label": "LORENTEGGIO",
         "realtime": {
           "giromilano": {
             "line": "14",
             "stops": [
               {
-                "id": "11182"
-              },
-              {
-                "id": "11193",
-                "offset": -60
+                "id": "11194"
               }
             ]
           }
