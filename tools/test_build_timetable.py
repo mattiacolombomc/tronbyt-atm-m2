@@ -159,6 +159,15 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(rail["realtime"], {"viaggiatreno": "S01032"})
         self.assertNotIn("realtime", self.metro)
 
+    def test_without_feeds_skips_profiles_using_an_unavailable_feed(self):
+        profiles = {
+            "a": {"legs": [{"route": "M2"}]},
+            "b": {"legs": [{"route": "M2"}, {"feed": "trenord", "route": "S9"}]},
+        }
+        self.assertEqual(list(build_timetable.without_feeds(profiles, {"trenord"})), ["a"])
+        self.assertEqual(list(build_timetable.without_feeds(profiles, set())), ["a", "b"])
+        self.assertEqual(build_timetable.without_feeds(profiles, {"atm"}), {})
+
     def test_profile_metadata(self):
         self.assertEqual(self.timetables["tram"]["transfer_min"], 4)
         self.assertEqual(self.tram["label"], "14")

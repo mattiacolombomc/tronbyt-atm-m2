@@ -199,6 +199,15 @@ def feeds_needed(profiles):
     return sorted({leg.get("feed", DEFAULT_FEED) for p in profiles.values() for leg in p["legs"]})
 
 
+def without_feeds(profiles, unavailable):
+    """The profiles that use none of the `unavailable` feeds."""
+    return {
+        name: profile
+        for name, profile in profiles.items()
+        if not any(leg.get("feed", DEFAULT_FEED) in unavailable for leg in profile["legs"])
+    }
+
+
 def build(zip_paths, profiles, today=None):
     """profile name -> timetable dict. zip_paths maps feed name -> GTFS zip."""
     today = today or datetime.date.today().strftime("%Y%m%d")
@@ -245,15 +254,27 @@ def main():
         profiles = json.load(f)
 
     zip_paths = dict(arg.split("=", 1) for arg in args.zip)
+    unavailable = set()
     for feed in feeds_needed(profiles):
-        if feed not in zip_paths:
-            zip_paths[feed] = "gtfs-%s.zip" % feed
+        if feed in zip_paths:
+            continue
+        try:
             url = FEED_URLS[feed]()
             print("downloading", url, file=sys.stderr)
-            download(url, zip_paths[feed])
+            download(url, "gtfs-%s.zip" % feed)
+            zip_paths[feed] = "gtfs-%s.zip" % feed
+        except (OSError, RuntimeError) as err:
+            # an open-data portal that is down for a few days must not block
+            # the other feeds: the profiles using this one keep their last build
+            print("::warning::%s feed not downloaded (%s)" % (feed, err), file=sys.stderr)
+            unavailable.add(feed)
+
+    buildable = without_feeds(profiles, unavailable)
+    for name in profiles.keys() - buildable.keys():
+        print("%s: keeping the previous timetable" % os.path.join(args.out, name + ".json"), file=sys.stderr)
 
     os.makedirs(args.out, exist_ok=True)
-    for name, timetable in build(zip_paths, profiles).items():
+    for name, timetable in build(zip_paths, buildable).items():
         path = os.path.join(args.out, name + ".json")
         with open(path, "w") as out:
             json.dump(timetable, out, separators=(",", ":"))
